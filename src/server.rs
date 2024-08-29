@@ -1551,14 +1551,28 @@ impl proto::Peer for Peer {
         // A request translated from HTTP/1 must not include the :authority
         // header
         if let Some(authority) = pseudo.authority {
+            // See original PR: https://github.com/hyperium/h2/pull/612/files
             let maybe_authority = uri::Authority::from_maybe_shared(authority.clone().into_inner());
-            parts.authority = Some(maybe_authority.or_else(|why| {
-                malformed!(
-                    "malformed headers: malformed authority ({:?}): {}",
-                    authority,
-                    why,
-                )
-            })?);
+            // `:authority` is required only with `CONNECT` method.
+            // It should contains host and port. This is exactly what `uri::Authority` is
+            // going to parse.
+            //
+            // See: https://datatracker.ietf.org/doc/html/rfc7540#section-8.3
+            if is_connect {
+                if let Err(why) = &maybe_authority {
+                    malformed!(
+                        "malformed headers: malformed authority ({:?}): {}",
+                        authority,
+                        why,
+                    );
+                }
+            }
+
+            // `authority` is not required in HTTP/2, so it is safe to keep it `None`
+            // in `parts`.
+            //
+            // See: https://datatracker.ietf.org/doc/html/rfc7540#section-8.1.2.3
+            parts.authority = maybe_authority.ok();
         }
 
         // A :scheme is required, except CONNECT.
